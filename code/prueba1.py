@@ -7,21 +7,37 @@ import lightgbm as lgb
 import gc
 
 INPUT = '../data/'
+FT_SEL = True
 
-X_train = pd.read_csv(f'{INPUT}train_values.csv')
+train = pd.read_csv(f'{INPUT}train_values.csv')
+X_train = train.loc[:, train.columns != 'building_id']
+Ids = train['building_id']
 
 y_train = pd.read_csv(f'{INPUT}train_labels.csv').damage_grade
 
 train_cols = X_train.columns
-cat_list = list()
 
-for col in train_cols:
-    if X_train[col].dtypes == 'object':
-        cat_list.append(col)
-        
+#cat_list = list()
+#for col in train_cols:
+#    if X_train[col].dtypes == 'object':
+#        cat_list.append(col)
+#        
+#
+#for col in cat_list:
+#    X_train[col] = (X_train.groupby(col).size())/X_train.shape[0]
+    
 
-for col in cat_list:
-    X_train[col] = (X_train.groupby(col).size())/X_train.shape[0]
+X_train_cat = X_train.select_dtypes('object')
+cat_cols = X_train_cat.columns.tolist()
+for col in cat_cols:
+    print(f'Processing {col}...')
+    dict_num = dict()
+    val_cnt = X_train_cat[col].value_counts()
+    n = 0
+    for cat in val_cnt.index.tolist():
+        dict_num[cat] = n
+        n += 1
+    X_train[col] = X_train[col].apply(lambda x: dict_num[x])
     
     
 #def custom_loss(y_pred, y_true):
@@ -41,17 +57,18 @@ def evaluate_microF1_lgb(truth, predictions):
 #X_train2, X_test2, y_train2, y_test2 = train_test_split(X_train, y_train,
 #                                                        test_size = 0.33,
 #                                                        random_state = 42)
-
-rfc = RandomForestClassifier()
-rfc.fit(X_train.fillna(-1), y_train)
-features = pd.Series(rfc.feature_importances_, index= X_train.columns)
-features = features.sort_values(ascending=False)
-
-ft_sel = list(features[:15].index)
-ft_sel
-
-X_train2 = X_train[ft_sel]
-X_train2 = X_train
+if FT_SEL:
+    rfc = RandomForestClassifier()
+    rfc.fit(X_train, y_train)
+    features = pd.Series(rfc.feature_importances_, index= X_train.columns)
+    features = features.sort_values(ascending=False)
+    
+    ft_sel = list(features[:20].index)
+    ft_sel
+    
+    X_train2 = X_train[ft_sel]
+else:
+    X_train2 = X_train
 
     
 k = 3
@@ -65,18 +82,18 @@ b_r = 0
 params = {
         "objective" : "multiclass",
           "num_class" : 3,
-          "num_leaves" : 50,
-          "max_depth": 7,
+          "num_leaves" : 91,
+          "max_depth": 5,
           "learning_rate" : 0.05,
-          "bagging_fraction" : 0.95,  # subsample
-          "feature_fraction" : 0.95,  # colsample_bytree
+          "bagging_fraction" : 0.8,  # subsample
+          "feature_fraction" : 0.8,  # colsample_bytree
           "bagging_freq" : 5,        # subsample_freq
           "bagging_seed" : 42,
           "random_state" : 42,
           "num_boost_round": 10000,
           "n_jobs": -1,
           "min_child_samples": 10,
-          "min_child_weight": 0.1
+          "min_child_weight": 0.05
           }
 
 
@@ -92,7 +109,7 @@ for train_index, test_index in skf.split(train_ids, y_train):
     lgb_model.fit(X_fit,
                   y_fit,
                   eval_set=[(X_val, y_val)],
-                  verbose=10,
+                  verbose=100,
                   early_stopping_rounds=30,
                   eval_metric=evaluate_microF1_lgb
                   )
